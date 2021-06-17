@@ -68,7 +68,7 @@ class SoftWebauthnDevice():
         }
 
         rp_id_hash = sha256(self.rp_id.encode('ascii'))
-        flags = b'\x41'  # attested_data + user_present
+        flags = b'\x45'  # attested_data + user_verified + user_present
         sign_count = pack('>I', self.sign_count)
         credential_id_length = pack('>H', len(self.credential_id))
         cose_key = cbor.encode(ES256.from_cryptography_key(self.private_key.public_key()))
