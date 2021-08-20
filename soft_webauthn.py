@@ -107,7 +107,7 @@ class SoftWebauthnDevice():
         client_data_hash = sha256(client_data)
 
         rp_id_hash = sha256(self.rp_id.encode('ascii'))
-        flags = b'\x01'
+        flags = b'\x05'
         sign_count = pack('>I', self.sign_count)
         authenticator_data = rp_id_hash + flags + sign_count
 
