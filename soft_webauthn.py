@@ -61,9 +61,6 @@ class SoftWebauthnDevice():
         if {'alg': -7, 'type': 'public-key'} not in options['publicKey']['pubKeyCredParams']:
             raise ValueError('Requested pubKeyCredParams does not contain supported type')
 
-        if ('attestation' in options['publicKey']) and (options['publicKey']['attestation'] != 'none'):
-            raise ValueError('Only none attestation supported')
-
         # prepare new key
         self.cred_init(options['publicKey']['rp']['id'], options['publicKey']['user']['id'])
 
@@ -72,27 +69,33 @@ class SoftWebauthnDevice():
             'type': 'webauthn.create',
             'challenge': urlsafe_b64encode(options['publicKey']['challenge']).decode('ascii').rstrip('='),
             'origin': origin
-        }).encode("utf-8")
+        }).encode('utf-8')
 
         rp_id_hash = sha256(self.rp_id.encode('ascii'))
         sign_count = pack('>I', self.sign_count)
         credential_id_length = pack('>H', len(self.credential_id))
         cose_key = cbor.encode(ES256.from_cryptography_key(self.private_key.public_key()))
 
-        authenticator_data = rp_id_hash + flags + sign_count + self.aaguid + credential_id_length + self.credential_id + cose_key
-        client_data_hash = sha256(client_data)
-        signature = self.private_key.sign(authenticator_data + client_data_hash, ec.ECDSA(hashes.SHA256()))
+        stmt = {}
+        fmt = "none"
 
-        self_packed_stmt = {
-            "alg": -7,
-            "sig": signature
-        }
+        authenticator_data = rp_id_hash + flags + sign_count + self.aaguid + credential_id_length + self.credential_id + cose_key
+
+        if options["publicKey"]["attestation"] == "direct":
+            client_data_hash = sha256(client_data)
+            signature = self.private_key.sign(authenticator_data + client_data_hash, ec.ECDSA(hashes.SHA256()))
+
+            fmt = "packed"
+            stmt["alg"] = -7
+            stmt["sig"] = signature
 
         attestation_object = {
             'authData': authenticator_data,
-            'fmt': 'packed',
-            'attStmt': self_packed_stmt
+            'fmt': fmt,
+            'attStmt': stmt
         }
+
+        print(attestation_object)
 
         return {
             'id': urlsafe_b64encode(self.credential_id),
