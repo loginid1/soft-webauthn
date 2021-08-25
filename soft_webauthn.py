@@ -17,6 +17,11 @@ from fido2.ctap2 import AttestedCredentialData
 from fido2.utils import sha256
 
 
+class Flags:
+    UP = 0x01
+    UV = 0x04
+    AT = 0x40
+
 class SoftWebauthnDevice():
     """
     This simulates the Webauthn browser API with a authenticator device
@@ -48,49 +53,77 @@ class SoftWebauthnDevice():
             self.credential_id,
             ES256.from_cryptography_key(self.private_key.public_key()))
 
-    def create(self, options, origin):
+    def create(self, options, origin, user_presence=True, user_verification=True):
         """create credential and return PublicKeyCredential object aka attestation"""
 
         if {'alg': -7, 'type': 'public-key'} not in options['publicKey']['pubKeyCredParams']:
             raise ValueError('Requested pubKeyCredParams does not contain supported type')
 
-        if ('attestation' in options['publicKey']) and (options['publicKey']['attestation'] != 'none'):
-            raise ValueError('Only none attestation supported')
-
         # prepare new key
         self.cred_init(options['publicKey']['rp']['id'], options['publicKey']['user']['id'])
 
         # generate credential response
-        client_data = {
+        client_data = json.dumps({
             'type': 'webauthn.create',
             'challenge': urlsafe_b64encode(options['publicKey']['challenge']).decode('ascii').rstrip('='),
             'origin': origin
-        }
+        }).encode('utf-8')
 
         rp_id_hash = sha256(self.rp_id.encode('ascii'))
-        flags = b'\x45'  # attested_data + user_verified + user_present
         sign_count = pack('>I', self.sign_count)
         credential_id_length = pack('>H', len(self.credential_id))
         cose_key = cbor.encode(ES256.from_cryptography_key(self.private_key.public_key()))
+
+        stmt = {}
+        fmt = "none"
+        att_req = ("attestation" in options["publicKey"] and options["publicKey"]["attestation"] == "direct")
+
+        #prepare flags
+        flags = 0x00
+        if user_presence:
+            flags |= Flags.UP
+        if user_verification:
+            flags |= Flags.UV
+        if att_req:
+            flags |= Flags.AT
+
+        flags_bytes = flags.to_bytes(1, "little")
+
+        authenticator_data = (
+            rp_id_hash +
+            flags_bytes +
+            sign_count +
+            self.aaguid +
+            credential_id_length +
+            self.credential_id + 
+            cose_key
+        )
+
+        if att_req:
+            client_data_hash = sha256(client_data)
+            signature = self.private_key.sign(authenticator_data + client_data_hash, ec.ECDSA(hashes.SHA256()))
+
+            fmt = "packed"
+            stmt["alg"] = -7
+            stmt["sig"] = signature
+
         attestation_object = {
-            'authData':
-                rp_id_hash + flags + sign_count
-                + self.aaguid + credential_id_length + self.credential_id + cose_key,
-            'fmt': 'none',
-            'attStmt': {}
+            'authData': authenticator_data,
+            'fmt': fmt,
+            'attStmt': stmt
         }
 
         return {
             'id': urlsafe_b64encode(self.credential_id),
             'rawId': self.credential_id,
             'response': {
-                'clientDataJSON': json.dumps(client_data).encode('utf-8'),
+                'clientDataJSON': client_data,
                 'attestationObject': cbor.encode(attestation_object)
             },
             'type': 'public-key'
         }
 
-    def get(self, options, origin):
+    def get(self, options, origin, user_presence = True, user_verification = True):
         """get authentication credential aka assertion"""
 
         if self.rp_id != options['publicKey']['rpId']:
@@ -106,10 +139,18 @@ class SoftWebauthnDevice():
         }).encode('utf-8')
         client_data_hash = sha256(client_data)
 
+        # prepare flags
+        flags = 0x00
+        if user_presence:
+            flags |= Flags.UP
+        if user_verification:
+            flags |= Flags.UV
+
+        flags_bytes = flags.to_bytes(1, "little")
+
         rp_id_hash = sha256(self.rp_id.encode('ascii'))
-        flags = b'\x05'
         sign_count = pack('>I', self.sign_count)
-        authenticator_data = rp_id_hash + flags + sign_count
+        authenticator_data = rp_id_hash + flags_bytes + sign_count
 
         signature = self.private_key.sign(authenticator_data + client_data_hash, ec.ECDSA(hashes.SHA256()))
 
@@ -125,3 +166,4 @@ class SoftWebauthnDevice():
             },
             'type': 'public-key'
         }
+
