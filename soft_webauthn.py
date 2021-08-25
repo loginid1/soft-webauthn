@@ -95,8 +95,6 @@ class SoftWebauthnDevice():
             'attStmt': stmt
         }
 
-        print(attestation_object)
-
         return {
             'id': urlsafe_b64encode(self.credential_id),
             'rawId': self.credential_id,
