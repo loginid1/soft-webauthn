@@ -53,7 +53,7 @@ class SoftWebauthnDevice():
             self.credential_id,
             ES256.from_cryptography_key(self.private_key.public_key()))
 
-    def create(self, options, origin, user_presence=True, user_verification=True):
+    def create(self, options, origin, user_presence=True, user_verification=True, attested=True):
         """create credential and return PublicKeyCredential object aka attestation"""
 
         if {'alg': -7, 'type': 'public-key'} not in options['publicKey']['pubKeyCredParams']:
@@ -84,7 +84,7 @@ class SoftWebauthnDevice():
             flags |= Flags.UP
         if user_verification:
             flags |= Flags.UV
-        if att_req:
+        if attested:
             flags |= Flags.AT
 
         flags_bytes = flags.to_bytes(1, "little")
